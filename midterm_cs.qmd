@@ -1,0 +1,10 @@
+---
+title: "EDLD 652 Midterm"
+author: "Chen Su"
+format: 
+  html:
+    embed-resources: true
+execute: 
+  warning: false
+---
+
