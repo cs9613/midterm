@@ -15,6 +15,7 @@ execute:
 library(tidyverse)
 library(rio)
 library(glue)
+library(here)
 
 download_file <- function(year) {
   link <- glue::glue("https://www.oregon.gov/ode/educator-resources/assessment/TestResults20{year}/pagr_schools_ela_raceethnicity_{year-1}{year}.xlsx")
@@ -157,7 +158,83 @@ v_plot <- v_map |>
   select(-data) |> 
   filter(district %in% dists)
 
+# method 1
+by_district <- v_plot |>
+  group_by(district, n) |>
+  nest()
+
+plots_1 <- by_district |>
+  mutate(
+    plots = pmap(list(data, district, n), 
+                 ~ggplot(..1, aes(x = academic_year, y = v, group = 1)) + 
+                 geom_hline(yintercept = 0, color = "red", linewidth = 0.6) + 
+                 geom_line(color = "lightgray", size = 0.6) + 
+                 geom_point(color = "skyblue", size = 4) + 
+                 geom_errorbar(aes(ymin = v - v_se, ymax = v + v_se), color = "darkgray", 
+                               linewidth = 1, width = 0.3) + 
+                 labs( title = glue("Achievement Gap Estimates: {..2}"),
+                       subtitle = "Negative values indicate White students have higher average achievement\nPositive values indicate Hispanic/Latino students have higher average achievement",
+                       x = "School year", 
+                       y = "Average achievement difference (SD units)",
+      caption = glue("Note: District included {..3} schools.")
+    ) + theme_minimal(base_size = 14))
+  )
+
+plots_1$plots[[1]]
+
+# method 2
+plots_2 <- v_plot |>
+  ungroup() |>
+  nest_by (district, n) |>
+  mutate(plots = list(
+    ggplot(data, aes(x = academic_year, y = v, group = 1)) + 
+                 geom_hline(yintercept = 0, color = "red", linewidth = 0.6) + 
+                 geom_line(color = "lightgray", size = 0.6) + 
+                 geom_point(color = "skyblue", size = 4) + 
+                 geom_errorbar(aes(ymin = v - v_se, ymax = v + v_se), color = "darkgray", 
+                               linewidth = 1, width = 0.3) + 
+                 labs( title = glue("Achievement Gap Estimates: {district}"),
+                       subtitle = "Negative values indicate White students have higher average achievement\nPositive values indicate Hispanic/Latino students have higher average achievement",
+                       x = "School year", 
+                       y = "Average achievement difference (SD units)",
+      caption = glue("Note: District included: ", n, " schools.")
+    ) + theme_minimal(base_size = 14))
+  )
+
+plots_2$plots[[1]]
 
 ```
 
+
+```{r}
+#| label: part-b-achievement-4
+
+fs::dir_create(here::here("plots", "achievement"))
+
+files <- str_replace_all(
+  tolower(plots_1$district),
+  " ",
+  "-"
+)
+paths <- here::here("plots", "achievement", glue("{files}.png"))
+paths
+
+plots_1 |> 
+  ungroup() |> 
+  mutate(path = paths) |> 
+  select(plots, path)
+
+plots_1 |> 
+  ungroup() |> 
+  mutate(path = paths) |> 
+  rowwise() |> 
+  summarize(
+    ggsave(path, plots, 
+      width = 9.5, 
+      height = 6.5,
+      dpi = 500
+    )
+  )
+
+```
 
