@@ -8,3 +8,156 @@ execute:
   warning: false
 ---
 
+
+```{r}
+#| label: part-a-data-1
+
+library(tidyverse)
+library(rio)
+library(glue)
+
+download_file <- function(year) {
+  link <- glue::glue("https://www.oregon.gov/ode/educator-resources/assessment/TestResults20{year}/pagr_schools_ela_raceethnicity_{year-1}{year}.xlsx")
+  rio::import(link, setclass = "tibble", na = c("-", "--", "*"))
+}
+
+df <- bind_rows(lapply(15:18, download_file))
+
+df
+
+# data cleaning
+
+library(janitor)
+
+df_1 <- df |>
+  clean_names() |>
+  filter(student_group == "White" | student_group == "Hispanic/Latino") |>
+  select(1, 3, 5, 7, 8, 11, 13, 15, 17) |>
+  pivot_longer(
+    cols = c(number_level_1, number_level_2, number_level_3, number_level_4),
+    names_to = "level",
+    names_prefix = "number_level_",
+    values_to = "n",
+    values_drop_na = TRUE
+  ) 
+
+df_1
+
+```
+
+
+```{r}
+#| label: part-a-data-2
+
+df_2 <- df_1 |>
+  group_by(academic_year, district, student_group, level) |>
+  summarize(n = sum(n, na.rm = TRUE),
+    .groups = "drop") |>
+  pivot_wider(
+    names_from = student_group,
+    values_from = n
+  ) |> 
+  drop_na()
+  
+n_schools <- df_1 |>
+  group_by(district) |>
+  summarize(n_schools = n_distinct(school),
+            .groups = "drop")
+
+df_2 <- df_2 |>
+  left_join(n_schools, by = "district")
+
+# clean variable name and reorder
+
+df_2 <- df_2 |>
+  relocate(n_schools, .before = level) |>
+  rename(hispanic_latino = `Hispanic/Latino`,
+         white = White) |>
+  arrange(district)
+
+df_2
+
+```
+
+
+```{r}
+#| label: part-b-achievement-set-up
+
+library(remotes)
+
+remotes::install_github("datalorax/gapr")
+
+library(gapr)
+df_2[1:4, ] |> # data source - just first four rows for first district
+  estimate_v("white", "hispanic_latino") # columns for reference/focal groups
+
+```
+
+
+```{r}
+#| label: part-b-achievement-1
+
+library(purrr)
+
+v_map <- df_2 |>
+  group_by(academic_year, district) |>
+  nest() |>
+  mutate(
+    v = map(data, ~estimate_v(.x, "white", "hispanic_latino"))
+  ) |>
+  unnest(v) 
+
+
+v_sum <- df_2 |>
+  nest_by(academic_year, district) |>
+  summarize(
+    estimate_v(data, "white", "hispanic_latino"),
+    .groups = "drop"
+  )
+
+
+```
+
+
+```{r}
+#| label: part-b-achievement-2
+
+v_map_p <- v_map |>
+  select(-data, -auc, -v_se) |>
+  rename(v_map = v) 
+
+v_sum_p <- v_sum |>
+  rename(v_sum = v) |>
+    select(-auc, -v_se)
+
+v_compare <- v_map_p |>
+  left_join(v_sum_p, by = join_by(academic_year, district))
+
+# plotting
+
+ggplot(v_compare, aes(x = v_sum, y = v_map)) +
+  geom_point(color = "gray", alpha = 5) +
+  geom_abline(slope = 1, intercept = 0, color = "lightblue", linewidth = 1.2) +
+  labs(
+    x = "V (`nest_by() |> summarize()`)",
+    y = "V (`group_by() |> nest() |> mutate() |> map()`)"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+
+```{r}
+#| label: part-b-achievement-3
+
+dists <- unique(v_map$district)[1:100]
+
+v_plot <- v_map |> 
+  mutate(n = map_int(data, ~unique(.x$n_schools))) |>
+  select(-data) |> 
+  filter(district %in% dists)
+
+
+```
+
+
